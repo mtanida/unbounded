@@ -56,16 +56,19 @@ const (
 // Run wraps it with context, so callers must test with errors.Is.
 var ErrDeferred = errors.New("daemon deferred until installation completes")
 
-// ErrRestartRequested reports that the daemon stopped so systemd starts it
+// ErrRestartRequested reports that the daemon stopped so it can be started
 // again: it staged an AgentUpgrade, or moved its files to the host root, and the
-// unit now runs a different binary or a different path. The command layer exits
-// 0, and the unit's Restart=always starts the daemon again after RestartSec.
+// unit now runs a different binary or a different path. The command layer
+// re-executes the binary the unit runs in the same process. If it cannot, it
+// exits 0, and the unit's Restart=always starts the daemon again after
+// RestartSec.
 //
-// The daemon cannot restart itself. A systemctl it runs is in the daemon's
-// cgroup, and stopping the daemon kills everything in that cgroup. When the
-// kill lands before systemctl exits, the daemon sees a failed command for a
-// restart already under way. Exiting leaves nothing to kill.
-var ErrRestartRequested = errors.New("daemon exiting to be restarted")
+// The daemon does not ask systemd to restart it. A systemctl it runs is in the
+// daemon's cgroup, and stopping the daemon kills everything in that cgroup.
+// When the kill lands before systemctl exits, the daemon sees a failed command
+// for a restart already under way. Re-executing or exiting leaves nothing to
+// kill.
+var ErrRestartRequested = errors.New("daemon stopping to be restarted")
 
 // kubeClientFunc constructs a controller-runtime client from a rest.Config.
 // The production implementation is client.NewWithWatch; tests can supply a fake.
@@ -171,8 +174,8 @@ func run(ctx context.Context, log *slog.Logger, opts runOptions) error {
 	// After the upgrade is reported, so a move never runs before this binary
 	// has shown it can start, and so the signal it waits for is gone.
 	if reconcileHostRootUnderLock(ctx, log, runOpts.installation, runOpts.NodeOperator, active) {
-		// The units now name the moved files. The daemon systemd starts in
-		// this one's place runs from them, and runs the controller.
+		// The units now name the moved files. The daemon that starts in this
+		// one's place runs from them, and runs the controller.
 		return ErrRestartRequested
 	}
 

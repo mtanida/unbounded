@@ -30,8 +30,8 @@ type machineOperationTarget struct {
 	machineName          string
 	nodeOperator         nodeOperator
 	agentUpgradeLockPath string
-	// requestRestart stops the controller so the daemon exits and systemd
-	// restarts it; see ErrRestartRequested. It returns at once.
+	// requestRestart stops the controller so the daemon restarts from the
+	// staged binary; see ErrRestartRequested. It returns at once.
 	requestRestart func()
 	// restartRequested is set once this daemon has staged an AgentUpgrade and
 	// asked to be restarted for it; see reconcileAgentUpgrade.
@@ -77,8 +77,8 @@ func (t *machineOperationTarget) reconcileNodeReboot(ctx context.Context, store 
 }
 
 func (t *machineOperationTarget) reconcileAgentUpgrade(ctx context.Context, store daemon.MachineOperationStore[int64], op daemon.MachineOperation) (ctrl.Result, error) {
-	// Once it has staged an AgentUpgrade, this daemon is stopping so systemd
-	// restarts it from the staged binary. Until it has stopped, the operation
+	// Once it has staged an AgentUpgrade, this daemon is stopping to restart
+	// from the staged binary. Until it has stopped, the operation
 	// it staged is InProgress but not finished, so it can be reconciled again,
 	// and staging again would switch the slots back. The restarted daemon
 	// reports that operation from the pending signal, and picks up any other
@@ -154,10 +154,10 @@ func (t *machineOperationTarget) reconcileAgentUpgrade(ctx context.Context, stor
 		return finishFailedMachineOperation(ctx, store, op, err)
 	}
 
-	// The operation stays InProgress. The daemon systemd starts in this one's
+	// The operation stays InProgress. The daemon that starts in this one's
 	// place, from the staged binary, reports it from the pending signal, and
 	// recovery reports it if that daemon cannot start.
-	t.log.Info("staged AgentUpgrade; exiting so systemd restarts the daemon from it", "operation", op.Name)
+	t.log.Info("staged AgentUpgrade; restarting the daemon from it", "operation", op.Name)
 	t.restartRequested.Store(true)
 	t.requestRestart()
 

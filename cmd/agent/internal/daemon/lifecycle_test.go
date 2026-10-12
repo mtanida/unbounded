@@ -156,12 +156,13 @@ func TestDaemonUnitDeclaresDeferredExitCode(t *testing.T) {
 	require.Contains(t, unit, "OnFailure="+goalstates.DaemonRecoveryUnit)
 }
 
-// TestDaemonUnitRestartsAfterACleanExit pins what ErrRestartRequested relies
-// on: the daemon exits 0 after staging an AgentUpgrade or moving to the host
-// root, and only the unit's Restart= starts it again. Restart=always restarts
-// after any exit, 0 included, unless the code is in RestartPreventExitStatus.
-// A unit that restarts only on failure, or that names 0 there, would leave the
-// host without a daemon and the AgentUpgrade InProgress for good.
+// TestDaemonUnitRestartsAfterACleanExit pins what ErrRestartRequested falls
+// back on: a daemon that stopped after staging an AgentUpgrade or moving to the
+// host root, and could not re-execute in place, exits 0, and only the unit's
+// Restart= starts it again. Restart=always restarts after any exit, 0 included,
+// unless the code is in RestartPreventExitStatus. A unit that restarts only on
+// failure, or that names 0 there, would leave the host without a daemon and the
+// AgentUpgrade InProgress for good.
 func TestDaemonUnitRestartsAfterACleanExit(t *testing.T) {
 	t.Parallel()
 

@@ -65,7 +65,7 @@ type nodeOperator interface {
 	// older agent installed, once that cannot strand a rollback, and finishes
 	// an interrupted move. The caller holds installation ownership. It reports
 	// whether the daemon has to be restarted from the moved files, which it
-	// is by exiting rather than taking any work; see ErrRestartRequested.
+	// is by stopping rather than taking any work; see ErrRestartRequested.
 	ReconcileHostRoot(context.Context, *slog.Logger, *ActiveMachine) (bool, error)
 }
 

@@ -64,7 +64,7 @@ func reconcileHostRootUnderLock(ctx context.Context, log *slog.Logger, store *in
 // once that cannot strand a rollback, and, once nothing the agent runs is under
 // the legacy root, removes the binary install scripts seed there for older
 // agents. It reports whether the daemon has to be restarted from the moved
-// files, which it is by exiting; see ErrRestartRequested.
+// files, which it is by stopping; see ErrRestartRequested.
 func reconcileHostRoot(ctx context.Context, log *slog.Logger, operator nodeOperator, active *ActiveMachine) (bool, error) {
 	released, err := hostroot.LegacyReleased()
 	if err != nil {
@@ -94,7 +94,7 @@ func reconcileHostRoot(ctx context.Context, log *slog.Logger, operator nodeOpera
 			return rewriteHostRootUnits(ctx, log, operator, active)
 		},
 		Verify: verifyMovedDaemon,
-		// The restart itself is the daemon exiting, once this returns.
+		// The restart itself is the daemon stopping, once this returns.
 		Restart: func(ctx context.Context) error {
 			clearDaemonStartLimit(ctx, log, executil.Systemctl())
 
@@ -104,10 +104,12 @@ func reconcileHostRoot(ctx context.Context, log *slog.Logger, operator nodeOpera
 }
 
 // clearDaemonStartLimit clears the daemon unit's start limit before the daemon
-// exits to be restarted from the moved files.
+// stops to be restarted from the moved files.
 //
-// The move's restart is planned, but systemd counts it against the unit's
-// StartLimitBurst like any other start. Right after a burst of starts, such as
+// The daemon restarts by re-executing in place, which systemd does not count
+// as a start. If that fails, it exits and systemd restarts it, and systemd
+// counts that planned restart against the unit's StartLimitBurst like any
+// other start. Right after a burst of starts, such as
 // AgentUpgrades in quick succession, it can be the one that exceeds the limit.
 // systemd then refuses it and runs OnFailure, and the recovery script rolls the
 // daemon back to last-good. No AgentUpgrade is pending by then, so nothing

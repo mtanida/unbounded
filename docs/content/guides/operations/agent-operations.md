@@ -56,8 +56,8 @@ active at a time.
 4. Updates the `unbounded-agent-current` symlink to point to the newly staged
    binary.
 5. Preserves the previous binary as `unbounded-agent-last-good`.
-6. Exits, and systemd restarts `unbounded-agent-daemon.service` from the new
-   binary about 10 seconds later.
+6. Restarts the daemon in place from the new binary, keeping the same process
+   in `unbounded-agent-daemon.service`.
 
 **Rollback:**
 

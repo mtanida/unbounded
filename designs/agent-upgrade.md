@@ -82,8 +82,9 @@ nothing is removed while the daemon still runs from it:
    `systemctl reset-failed` on the daemon unit, so this planned restart is not
    refused for a start limit that earlier starts used up; from systemd v255 a
    `daemon-reload` no longer clears it. It then releases the installation lock
-   and exits 0, as for an AgentUpgrade (see Staging and switching), and the
-   unit's `Restart=always` starts it again from the rewritten units.
+   and re-executes in place from the rewritten units, as for an AgentUpgrade
+   (see Staging and switching). The reset only matters if that fails and the
+   daemon exits for `Restart=always` to start it again.
 7. The restarted daemon, running from `/opt/unbounded/agent`, finds the marker
    and repeats steps 3 and 5, then removes the layout from `/usr/local`, the
    digest record and the `.moving` marker. It does not restart again. Running
@@ -307,10 +308,10 @@ Switch last-good and current symlinks
 Write pending JSON signal
         |
         v
-Stop the controller; the daemon exits 0
-        |
+Stop the controller; re-execute CurrentPath in place
+        |  (if that fails: exit 0, Restart=always after RestartSec)
         v
-Restart=always starts the new daemon after RestartSec
+New daemon starts in the same process
         |
         +-- startup succeeds ----------------------------> Complete, clear signal
         |
@@ -326,16 +327,24 @@ operation Pending and requeues it instead of failing it. The pending signal
 prevents a direct host activation from entering the window between the lock's
 release and the restarted daemon's startup.
 
-The daemon does not restart itself. A `systemctl restart` it ran would be in the
-daemon's cgroup, which stopping the daemon kills, and when the kill landed before
-`systemctl` exited the daemon would fail the operation and clear its signal for a
-restart already under way. Instead it stops its controller and exits 0, and the
-unit's `Restart=always` starts it again `RestartSec` later (10 seconds), from the
-binary `CurrentPath` now names. Nothing is left running to kill, and nothing can
-fail between staging and the exit. The restart counts against the unit's start
-limit like any other start.
+The daemon does not ask systemd to restart it. A `systemctl restart` it ran
+would be in the daemon's cgroup, which stopping the daemon kills, and when the
+kill landed before `systemctl` exited the daemon would fail the operation and
+clear its signal for a restart already under way. Instead it stops its
+controller and re-executes `CurrentPath`, the path the unit's `ExecStart` runs,
+in the same process, with the same arguments and environment. Nothing is left
+running to kill, and nothing between staging and the re-execution can fail the
+operation. systemd sees no restart: there is no `RestartSec` delay, the restart
+does not count against the unit's start limit, and the journal has no
+Stopped/Started lines for it; the daemon logs `re-executing the daemon in place`
+instead.
 
-Until it exits, an operation this daemon staged is InProgress but not finished,
+If the re-execution fails, the daemon logs why and exits 0, and the unit's
+`Restart=always` starts it again `RestartSec` later (10 seconds), from the same
+binary. If the new binary fails once it runs, it exits like any crashing daemon,
+and the unit's `Restart=` and `OnFailure` recovery handle it.
+
+Until it stops, an operation this daemon staged is InProgress but not finished,
 so it can be reconciled again. Once the daemon has asked to be restarted it takes
 no further AgentUpgrade: staging again would switch the slots back. The restarted
 daemon reports the staged operation from the pending signal, and enqueues any
