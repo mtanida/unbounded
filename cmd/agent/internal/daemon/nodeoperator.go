@@ -10,10 +10,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"reflect"
 	"strings"
-	"time"
 
 	"github.com/Azure/unbounded/cmd/agent/internal/installstate"
 	"github.com/Azure/unbounded/internal/executil"
@@ -63,16 +61,11 @@ type nodeOperator interface {
 	RepaveNode(context.Context, *slog.Logger, *ActiveMachine, *provision.UnboundedAgentConfig) error
 	// StageAgentUpgrade stages a new host-side agent binary.
 	StageAgentUpgrade(context.Context, *slog.Logger, agentUpgradeRequest) error
-	// RestartAgentDaemon schedules a restart of the host-side agent daemon:
-	// once an AgentUpgrade is staged and its pending signal recorded, and once
-	// a host root move has pointed the units at the moved files. It returns
-	// before the restart begins, and fails only if it could not schedule it.
-	RestartAgentDaemon(context.Context, *slog.Logger) error
 	// ReconcileHostRoot moves the agent's files to the host root on a host an
 	// older agent installed, once that cannot strand a rollback, and finishes
 	// an interrupted move. The caller holds installation ownership. It reports
-	// whether it queued the daemon's restart, after which the daemon must not
-	// take any work.
+	// whether the daemon has to be restarted from the moved files, which it
+	// is by exiting rather than taking any work; see ErrRestartRequested.
 	ReconcileHostRoot(context.Context, *slog.Logger, *ActiveMachine) (bool, error)
 }
 
@@ -304,52 +297,6 @@ func (nspawnNodeOperator) RepaveNode(
 
 func (nspawnNodeOperator) StageAgentUpgrade(ctx context.Context, log *slog.Logger, request agentUpgradeRequest) error {
 	return upgradeDaemonBinary(ctx, log, request)
-}
-
-// RestartAgentDaemon schedules a restart of the daemon and returns once it is
-// scheduled, before the restart begins.
-//
-// The daemon cannot run the restart itself. A systemctl it runs is in the
-// daemon's cgroup, even with --no-block, and stopping the daemon kills
-// everything in that cgroup. When the kill lands before systemctl exits, the
-// daemon sees a failed command for a restart that is already under way: an
-// AgentUpgrade is reported failed and its signal cleared, so the restarted
-// daemon, and recovery if it fails, have nothing to report it against.
-// systemd-run starts systemctl in a transient unit instead, outside the cgroup,
-// after the caller has had time to return.
-func (nspawnNodeOperator) RestartAgentDaemon(ctx context.Context, log *slog.Logger) error {
-	systemctl, err := exec.LookPath("systemctl")
-	if err != nil {
-		return fmt.Errorf("schedule a restart of %s: %w", goalstates.DaemonUnit, err)
-	}
-
-	if _, err := executil.OutputCmd(ctx, log, "systemd-run", daemonRestartArgs(systemctl, time.Now())...); err != nil {
-		return fmt.Errorf("schedule a restart of %s: %w", goalstates.DaemonUnit, err)
-	}
-
-	log.Info("scheduled the daemon's restart", "unit", goalstates.DaemonUnit, "delay", daemonRestartDelay)
-
-	return nil
-}
-
-// daemonRestartDelay is how long after RestartAgentDaemon schedules the
-// restart it begins. The caller has only to return in that time.
-const daemonRestartDelay = "1s"
-
-// daemonRestartArgs returns the systemd-run arguments that restart the daemon
-// unit from a transient unit, daemonRestartDelay after now. systemctl is
-// resolved by the caller, so the unit runs the one the daemon would have.
-func daemonRestartArgs(systemctl string, now time.Time) []string {
-	return []string{
-		"--quiet",
-		// Removed once it has run, whether or not the restart succeeded.
-		"--collect",
-		fmt.Sprintf("--unit=%s-restart-%d", strings.TrimSuffix(goalstates.DaemonUnit, ".service"), now.UnixNano()),
-		"--on-active=" + daemonRestartDelay,
-		// Timers otherwise fire up to a minute late, to coalesce wakeups.
-		"--timer-property=AccuracySec=100ms",
-		systemctl, "restart", goalstates.DaemonUnit,
-	}
 }
 
 func (op nspawnNodeOperator) ReconcileHostRoot(ctx context.Context, log *slog.Logger, active *ActiveMachine) (bool, error) {

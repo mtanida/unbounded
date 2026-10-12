@@ -5,12 +5,14 @@ package cmd
 
 import (
 	"errors"
+	"log/slog"
 	"os"
 	"os/signal"
 
 	"github.com/spf13/cobra"
 
 	"github.com/Azure/unbounded/cmd/agent/internal/daemon"
+	"github.com/Azure/unbounded/pkg/agent/goalstates"
 )
 
 func newCmdDaemon(cmdCtx *CommandContext) *cobra.Command {
@@ -28,11 +30,26 @@ func newCmdDaemon(cmdCtx *CommandContext) *cobra.Command {
 
 			cmdCtx.Setup()
 
-			return quietWhenDeferred(cmd, daemon.Run(ctx, cmdCtx.Logger))
+			err := exitForRestart(cmdCtx.Logger, daemon.Run(ctx, cmdCtx.Logger))
+
+			return quietWhenDeferred(cmd, err)
 		},
 	}
 
 	return cmd
+}
+
+// exitForRestart turns a daemon that stopped to be restarted into a clean
+// exit. The unit's Restart=always starts it again after RestartSec, from the
+// binary or the paths the units now name; see daemon.ErrRestartRequested.
+func exitForRestart(log *slog.Logger, err error) error {
+	if errors.Is(err, daemon.ErrRestartRequested) {
+		log.Info("daemon exiting for systemd to restart it", "unit", goalstates.DaemonUnit)
+
+		return nil
+	}
+
+	return err
 }
 
 // quietWhenDeferred stops cobra reporting a deferred daemon as an error.

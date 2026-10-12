@@ -81,10 +81,9 @@ nothing is removed while the daemon still runs from it:
 6. Restart the daemon, which is still running from `/usr/local`. It first runs
    `systemctl reset-failed` on the daemon unit, so this planned restart is not
    refused for a start limit that earlier starts used up; from systemd v255 a
-   `daemon-reload` no longer clears it. It then schedules the restart from a
-   transient unit, as for an AgentUpgrade (see Staging and switching), releases
-   the installation lock, takes no work, and waits to be replaced, exiting with
-   an error after two minutes so the unit's `Restart=` starts it instead.
+   `daemon-reload` no longer clears it. It then releases the installation lock
+   and exits 0, as for an AgentUpgrade (see Staging and switching), and the
+   unit's `Restart=always` starts it again from the rewritten units.
 7. The restarted daemon, running from `/opt/unbounded/agent`, finds the marker
    and repeats steps 3 and 5, then removes the layout from `/usr/local`, the
    digest record and the `.moving` marker. It does not restart again. Running
@@ -278,7 +277,7 @@ locking, and rollback behavior.
 ```text
 Pending MachineOperation
         |
-        +-- this daemon already scheduled its restart ---> Left for the restarted daemon
+        +-- this daemon is stopping to be restarted -----> Left for the restarted daemon
         |
         v
 Acquire shared host activation lock
@@ -308,12 +307,10 @@ Switch last-good and current symlinks
 Write pending JSON signal
         |
         v
-Schedule a restart of unbounded-agent-daemon.service
-        |
-        +-- scheduling failure --------------------------> Failed, clear signal
+Stop the controller; the daemon exits 0
         |
         v
-Old process exits, new daemon starts
+Restart=always starts the new daemon after RestartSec
         |
         +-- startup succeeds ----------------------------> Complete, clear signal
         |
@@ -324,23 +321,25 @@ Old process exits, new daemon starts
 
 The daemon first acquires the same host activation lock used by the direct
 `unbounded-agent agent-upgrade` command. It holds the lock through archive
-staging, link switching, pending signal creation, and scheduling the restart.
-Lock contention leaves the operation Pending and requeues it instead of failing
-it. The pending signal prevents a direct host activation from entering the
-window between the lock's release and the restarted daemon's startup.
+staging, link switching, and pending signal creation. Lock contention leaves the
+operation Pending and requeues it instead of failing it. The pending signal
+prevents a direct host activation from entering the window between the lock's
+release and the restarted daemon's startup.
 
-The daemon does not run the restart itself. A `systemctl` it runs is in the
-daemon's cgroup, which stopping the daemon kills, and when the kill lands before
-`systemctl` exits the daemon would fail the operation and clear its signal for a
-restart already under way. It schedules the restart with
-`systemd-run --on-active=1s` instead, which runs `systemctl restart` from a
-transient unit outside that cgroup once the daemon has returned. Only a failure
-to schedule it fails the operation. Until the restart, an operation this daemon
-staged is InProgress but not finished, so it can be reconciled again. Once the
-daemon has scheduled its restart it takes no further AgentUpgrade: staging again
-would switch the slots back. The restarted daemon reports the staged operation
-from the pending signal, and enqueues any other that is still Pending when it
-starts watching.
+The daemon does not restart itself. A `systemctl restart` it ran would be in the
+daemon's cgroup, which stopping the daemon kills, and when the kill landed before
+`systemctl` exited the daemon would fail the operation and clear its signal for a
+restart already under way. Instead it stops its controller and exits 0, and the
+unit's `Restart=always` starts it again `RestartSec` later (10 seconds), from the
+binary `CurrentPath` now names. Nothing is left running to kill, and nothing can
+fail between staging and the exit. The restart counts against the unit's start
+limit like any other start.
+
+Until it exits, an operation this daemon staged is InProgress but not finished,
+so it can be reconciled again. Once the daemon has asked to be restarted it takes
+no further AgentUpgrade: staging again would switch the slots back. The restarted
+daemon reports the staged operation from the pending signal, and enqueues any
+other that is still Pending when it starts watching.
 
 The daemon reads `spec.parameters["downloadURL"]` and the optional
 `spec.parameters["sha256"]` from the `MachineOperation`, resolves the current
@@ -419,7 +418,6 @@ startup signal path.
 | Download or extraction failure | `Failed`, `ExecutionFailed` | Current remains unchanged. Last-good changes to current only when needed to protect an inactive slot that it referenced. |
 | Empty archive entry | `Failed`, `ExecutionFailed` | Current remains unchanged. Last-good changes to current only when needed to protect an inactive slot that it referenced. |
 | Staged binary fails `version` | `Failed`, `ExecutionFailed` | Current remains unchanged. A distinct last-good target remains unchanged. |
-| Scheduling the restart fails | `Failed` | Signal is cleared. Links may already point to the staged binary. |
 | Upgraded daemon fails under systemd | `Failed`, `DaemonFailed` | Recovery restores current to last-good. |
 
 ## Sequential upgrades

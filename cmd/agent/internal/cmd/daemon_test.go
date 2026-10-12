@@ -6,6 +6,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -51,4 +52,23 @@ func TestDaemonCommandStillReportsRealFailures(t *testing.T) {
 
 	require.NoError(t, quietWhenDeferred(cmd, nil))
 	require.False(t, cmd.SilenceErrors)
+}
+
+// TestDaemonCommandExitsCleanlyToBeRestarted: a daemon that stopped so systemd
+// restarts it exits 0, and Restart=always starts it again from the staged
+// binary or the moved files. Exiting non-zero would count as a failure in the
+// journal for a planned restart. Every other result passes through unchanged.
+func TestDaemonCommandExitsCleanlyToBeRestarted(t *testing.T) {
+	t.Parallel()
+
+	log := slog.New(slog.DiscardHandler)
+
+	require.NoError(t, exitForRestart(log, daemon.ErrRestartRequested))
+	require.NoError(t, exitForRestart(log, fmt.Errorf("stopping: %w", daemon.ErrRestartRequested)),
+		"recognition has to survive wrapping")
+
+	real := errors.New("kube client unreachable")
+	require.ErrorIs(t, exitForRestart(log, real), real)
+	require.ErrorIs(t, exitForRestart(log, daemon.ErrDeferred), daemon.ErrDeferred, "deferring keeps its own exit code")
+	require.NoError(t, exitForRestart(log, nil))
 }
