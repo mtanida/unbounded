@@ -109,8 +109,8 @@ func reconcileHostRoot(ctx context.Context, log *slog.Logger, operator nodeOpera
 // The daemon restarts by re-executing in place, which systemd does not count
 // as a start. If that fails, it exits and systemd restarts it, and systemd
 // counts that planned restart against the unit's StartLimitBurst like any
-// other start. Right after a burst of starts, such as
-// AgentUpgrades in quick succession, it can be the one that exceeds the limit.
+// other start. Right after a burst of starts, it can be the one that exceeds
+// the limit.
 // systemd then refuses it and runs OnFailure, and the recovery script rolls the
 // daemon back to last-good. No AgentUpgrade is pending by then, so nothing
 // records that it happened.
@@ -119,8 +119,8 @@ func reconcileHostRoot(ctx context.Context, log *slog.Logger, operator nodeOpera
 // other unit alone. It must name the unit: with no name it resets every unit on
 // the host. Before systemd v255 the daemon-reload that rewriting the units runs
 // zeroes the counter too, but from v255 the counter survives a reload. An
-// AgentUpgrade's own restart does not need this: if systemd refuses it,
-// recovery finds the upgrade pending and reports it.
+// AgentUpgrade's own restart does not need this: if it falls back to systemd
+// and systemd refuses it, recovery finds the upgrade pending and reports it.
 //
 // It is best-effort, as in the recovery script: SELinux can deny it, and the
 // restart is worth trying either way.

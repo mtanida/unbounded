@@ -427,6 +427,7 @@ startup signal path.
 | Download or extraction failure | `Failed`, `ExecutionFailed` | Current remains unchanged. Last-good changes to current only when needed to protect an inactive slot that it referenced. |
 | Empty archive entry | `Failed`, `ExecutionFailed` | Current remains unchanged. Last-good changes to current only when needed to protect an inactive slot that it referenced. |
 | Staged binary fails `version` | `Failed`, `ExecutionFailed` | Current remains unchanged. A distinct last-good target remains unchanged. |
+| Re-executing the staged binary fails | Stays `InProgress`; the daemon exits 0 and systemd starts it `RestartSec` later, which reports it | Current points to the staged binary. |
 | Upgraded daemon fails under systemd | `Failed`, `DaemonFailed` | Recovery restores current to last-good. |
 
 ## Sequential upgrades

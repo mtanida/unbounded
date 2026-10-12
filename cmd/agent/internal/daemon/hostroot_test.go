@@ -58,7 +58,7 @@ func TestReconcileHostRootUnderLock(t *testing.T) {
 		requireReleased(t, store)
 	})
 
-	t.Run("reports a queued restart and releases the lock", func(t *testing.T) {
+	t.Run("reports a restart and releases the lock", func(t *testing.T) {
 		t.Parallel()
 
 		store := newStore(t)
